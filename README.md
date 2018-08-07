@@ -1,10 +1,10 @@
 ---
-services: Eventhub
-platforms: .Net
+services: Event-Hub
+platforms: dotnet
 author: anuchandy
 ---
 
-# Getting Started with Eventhub - Manage Event Hub - in .Net #
+# Getting started on managing event hub and associated resources using C# #
 
   Azure Event Hub sample for managing event hub -
     - Create an event hub namespace
@@ -20,7 +20,7 @@ author: anuchandy
 
 To run this sample:
 
-Set the environment variable `AZURE_AUTH_LOCATION` with the full path for an auth file. See [how to create an auth file](https://github.com/Azure/azure-sdk-for-net/blob/Fluent/AUTH.md).
+Set the environment variable `AZURE_AUTH_LOCATION` with the full path for an auth file. See [how to create an auth file](https://github.com/Azure/azure-libraries-for-java/blob/master/AUTH.md).
 
     git clone https://github.com/Azure-Samples/eventhub-dotnet-manage-event-hub.git
 
