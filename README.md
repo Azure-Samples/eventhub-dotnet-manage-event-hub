@@ -25,10 +25,10 @@ Set the environment variable `AZURE_AUTH_LOCATION` with the full path for an aut
     git clone https://github.com/Azure-Samples/eventhub-dotnet-manage-event-hub.git
 
     cd eventhub-dotnet-manage-event-hub
-
-    dotnet restore
-
-    dotnet run
+  
+    dotnet build
+    
+    bin\Debug\net452\ManageEventHub.exe
 
 ## More information ##
 
