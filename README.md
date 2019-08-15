@@ -4,21 +4,21 @@ languages:
 - csharp
 products:
 - azure
-services: Event-Hub
-platforms: dotnet
-author: yaohaizh
+extensions:
+- services: Event-Hub
+- platforms: dotnet
 ---
 
 # Getting started on managing event hub and associated resources using C# #
 
-      Azure Event Hub sample for managing event hub -
-        - Create an event hub namespace
-        - Create an event hub in the namespace with data capture enabled along with a consumer group and rule
-        - List consumer groups in the event hub
-        - Create a second event hub in the namespace
-        - Create a consumer group in the second event hub
-        - List consumer groups in the second event hub
-        - Create an event hub namespace along with event hub.
+ Azure Event Hub sample for managing event hub -
+   - Create an event hub namespace
+   - Create an event hub in the namespace with data capture enabled along with a consumer group and rule
+   - List consumer groups in the event hub
+   - Create a second event hub in the namespace
+   - Create a consumer group in the second event hub
+   - List consumer groups in the second event hub
+   - Create an event hub namespace along with event hub.
 
 
 ## Running this Sample ##
