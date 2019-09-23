@@ -7,6 +7,7 @@ products:
 extensions:
 - services: Event-Hub
 - platforms: dotnet
+description: "Azure Event Hub sample for managing event hub."
 ---
 
 # Getting started on managing event hub and associated resources using C# #
