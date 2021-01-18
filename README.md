@@ -5,8 +5,8 @@ languages:
 products:
 - azure
 extensions:
-- services: Event-Hub
-- platforms: dotnet
+  services: Event-Hub
+  platforms: dotnet
 ---
 
 # Getting started on managing event hub and associated resources using C# #
