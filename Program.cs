@@ -1,14 +1,16 @@
 ﻿// Copyright (c) Microsoft Corporation. All rights reserved.
 // Licensed under the MIT License. See License.txt in the project root for license information.
 
-using Microsoft.Azure.Management.Eventhub.Fluent;
-using Microsoft.Azure.Management.Fluent;
-using Microsoft.Azure.Management.ResourceManager.Fluent;
-using Microsoft.Azure.Management.ResourceManager.Fluent.Core;
-using Microsoft.Azure.Management.ResourceManager.Fluent.Core.ResourceActions;
-using Microsoft.Azure.Management.Samples.Common;
-using Microsoft.Azure.Management.Storage.Fluent;
-using System;
+using Azure;
+using Azure.Core;
+using Azure.Identity;
+using Azure.ResourceManager;
+using Azure.ResourceManager.EventHubs;
+using Azure.ResourceManager.EventHubs.Models;
+using Azure.ResourceManager.Resources;
+using Azure.ResourceManager.Samples.Common;
+using Azure.ResourceManager.Storage;
+using Azure.ResourceManager.Storage.Models;
 
 namespace ManageEventHub
 {
@@ -24,147 +26,127 @@ namespace ManageEventHub
      */
     public class Program
     {
-        public static void RunSample(IAzure azure)
+        private static ResourceIdentifier? _resourceGroupId = null;
+
+        public static async Task RunSample(ArmClient client)
         {
-            Region region = Region.USEast;
-            string rgName = SdkContext.RandomResourceName("rgeh", 15);
-            string namespaceName1 = SdkContext.RandomResourceName("ns", 15);
-            string namespaceName2 = SdkContext.RandomResourceName("ns", 15);
-            string storageAccountName = SdkContext.RandomResourceName("stg", 14);
-            string eventHubName1 = SdkContext.RandomResourceName("eh", 14);
-            string eventHubName2 = SdkContext.RandomResourceName("eh", 14);
+            AzureLocation region = AzureLocation.EastUS;
+            string rgName = Utilities.CreateRandomName("rgeh");
+            string namespaceName1 = Utilities.CreateRandomName("ns");
+            string storageAccountName = Utilities.CreateRandomName("stg");
+            string eventHubName1 = Utilities.CreateRandomName("eh");
+            string eventHubName2 = Utilities.CreateRandomName("eh");
 
             try
             {
+                //============================================================
+                // Create a resource group
+                //
+                SubscriptionResource subscription = await client.GetDefaultSubscriptionAsync();
+                ResourceGroupData resourceGroupData = new ResourceGroupData(region);
+                ResourceGroupResource resourceGroup = (await subscription.GetResourceGroups()
+                    .CreateOrUpdateAsync(WaitUntil.Completed, rgName, resourceGroupData)).Value;
+                _resourceGroupId = resourceGroup.Id;
+
                 //============================================================
                 // Create an event hub namespace
                 //
                 Utilities.Log("Creating a namespace");
 
-                IEventHubNamespace namespace1 = azure.EventHubNamespaces
-                        .Define(namespaceName1)
-                            .WithRegion(Region.USEast2)
-                            .WithNewResourceGroup(rgName)
-                            .Create();
+                EventHubsNamespaceData eventHubsNamespaceData = new EventHubsNamespaceData(region);
+                EventHubsNamespaceResource namespace1 = (await resourceGroup.GetEventHubsNamespaces()
+                    .CreateOrUpdateAsync(WaitUntil.Completed, namespaceName1, eventHubsNamespaceData)).Value;
 
-                Utilities.Print(namespace1);
-                Utilities.Log("Created a namespace");
+                Utilities.Log($"Created a namespace with Id: {namespace1.Id}");
 
                 //============================================================
-                // Create an event hub in the namespace with data capture enabled, with consumer group and auth rule
+                // Create an event hub in the namespace with data capture enabled
                 //
+                StorageAccountCreateOrUpdateContent storageAccountData = new StorageAccountCreateOrUpdateContent(
+                    new StorageSku(StorageSkuName.StandardLrs),
+                    StorageKind.StorageV2,
+                    AzureLocation.EastUS2);
+                StorageAccountResource storageAccountCreatable = (await resourceGroup.GetStorageAccounts()
+                    .CreateOrUpdateAsync(WaitUntil.Completed, storageAccountName, storageAccountData)).Value;
+                var blob = (await storageAccountCreatable.GetBlobService().GetAsync()).Value;
+                var container = (await blob.GetBlobContainers().CreateOrUpdateAsync(WaitUntil.Completed, "testname", new BlobContainerData())).Value;
 
-                ICreatable<IStorageAccount> storageAccountCreatable = azure.StorageAccounts
-                        .Define(storageAccountName)
-                            .WithRegion(Region.USEast2)
-                            .WithExistingResourceGroup(rgName)
-                            .WithSku(StorageAccountSkuType.Standard_LRS);
+                Utilities.Log("Creating an event hub with data capture enabled");
 
-                Utilities.Log("Creating an event hub with data capture enabled with a consumer group and rule in it");
+                EventHubData eventHubData = new EventHubData()
+                {
+                    // Optional - configure data capture
+                    CaptureDescription = new CaptureDescription()
+                    {
+                        Enabled = true,
+                        Encoding = EncodingCaptureDescription.Avro,
+                        Destination = new EventHubDestination()
+                        {
+                            Name = "EventHubArchive.AzureBlockBlob",
+                            StorageAccountResourceId = storageAccountCreatable.Id,
+                            BlobContainer = "testname"
+                        }
+                    }
+                };
+                EventHubResource eventHub1 = (await namespace1.GetEventHubs()
+                    .CreateOrUpdateAsync(WaitUntil.Completed, eventHubName1, eventHubData)).Value;
 
-                IEventHub eventHub1 = azure.EventHubs
-                        .Define(eventHubName1)
-                            .WithExistingNamespace(namespace1)
-                            // Optional - configure data capture
-                            .WithNewStorageAccountForCapturedData(storageAccountCreatable, "datacpt")
-                            .WithDataCaptureEnabled()
-                            // Optional - create one consumer group in event hub
-                            .WithNewConsumerGroup("cg1", "sometadata")
-                            // Optional - create an authorization rule for event hub
-                            .WithNewListenRule("listenrule1")
-                            .Create();
+                Utilities.Log($"Created an event hub with Id: {eventHub1.Id}");
 
-                Utilities.Log("Created an event hub with data capture enabled with a consumer group and rule in it");
-                Utilities.Print(eventHub1);
+                //============================================================
+                // Create a consumer group in the event hub
+                //
+                EventHubsConsumerGroupData eventHubsConsumerGroupData = new EventHubsConsumerGroupData() { UserMetadata = "sometadata" };
+                EventHubsConsumerGroupResource eventHubsConsumerGroup = (await eventHub1.GetEventHubsConsumerGroups()
+                    .CreateOrUpdateAsync(WaitUntil.Completed, "cg1", eventHubsConsumerGroupData)).Value;
+
+                // Optional - create an authorization rule for event hub
+                var rules = new EventHubsAuthorizationRuleData()
+                {
+                    Rights = { EventHubsAccessRight.Listen }
+                };
+                EventHubAuthorizationRuleResource eventHubAuthorizationRule = (await eventHub1.GetEventHubAuthorizationRules()
+                    .CreateOrUpdateAsync(WaitUntil.Completed, "listenrule1", rules)).Value;
 
                 //============================================================
                 // Retrieve consumer groups in the event hub
                 //
                 Utilities.Log("Retrieving consumer groups");
 
-                var consumerGroups = eventHub1.ListConsumerGroups();
+                var consumerGroups = eventHub1.GetEventHubsConsumerGroups().GetAllAsync();
 
                 Utilities.Log("Retrieved consumer groups");
-                foreach (IEventHubConsumerGroup group in consumerGroups)
+                await foreach (var group in consumerGroups)
                 {
-                    Utilities.Print(group);
+                    Utilities.Log(group.Data.Name);
                 }
 
                 //============================================================
-                // Create another event hub in the namespace using event hub accessor in namespace accessor
+                // Create a second event hub in same namespace
                 //
 
-                Utilities.Log("Creating another event hub in the namespace");
+                Utilities.Log("Creating a second event hub in same namespace");
 
-                IEventHub eventHub2 = azure.EventHubNamespaces
-                        .EventHubs
-                        .Define(eventHubName2)
-                            .WithExistingNamespace(namespace1)
-                            .Create();
+                EventHubResource eventHub2 = (await namespace1.GetEventHubs()
+                    .CreateOrUpdateAsync(WaitUntil.Completed, eventHubName2, new EventHubData())).Value;
 
-                Utilities.Log("Created second event hub");
-                Utilities.Print(eventHub2);
+                Utilities.Log($"Created an event hub with Id: {eventHub2.Id}");
 
-                //============================================================
-                // Create a consumer group in the event hub using consumer group accessor in event hub accessor
-                //
-
-                Utilities.Log("Creating a consumer group in the second event hub");
-
-                IEventHubConsumerGroup consumerGroup2 = azure.EventHubNamespaces
-                        .EventHubs
-                        .ConsumerGroups
-                        .Define("cg2")
-                            .WithExistingEventHub(eventHub2)
-                            // Optional
-                            .WithUserMetadata("sometadata")
-                            .Create();
-
-                Utilities.Log("Created a consumer group in the second event hub");
-                Utilities.Print(consumerGroup2);
-
-                //============================================================
-                // Retrieve consumer groups in the event hub
-                //
-                Utilities.Log("Retrieving consumer groups in the second event hub");
-
-                consumerGroups = eventHub2.ListConsumerGroups();
-
-                Utilities.Log("Retrieved consumer groups in the seoond event hub");
-                foreach (IEventHubConsumerGroup group in consumerGroups)
+                await foreach (var eh in namespace1.GetEventHubs().GetAllAsync())
                 {
-                    Utilities.Print(group);
-                }
-
-                //============================================================
-                // Create an event hub namespace with event hub
-                //
-
-                Utilities.Log("Creating an event hub namespace along with event hub");
-
-                IEventHubNamespace namespace2 = azure.EventHubNamespaces
-                        .Define(namespaceName2)
-                            .WithRegion(Region.USEast2)
-                            .WithExistingResourceGroup(rgName)
-                            .WithNewEventHub(eventHubName2)
-                            .Create();
-
-                Utilities.Log("Created an event hub namespace along with event hub");
-                Utilities.Print(namespace2);
-                foreach (IEventHub eh in namespace2.ListEventHubs())
-                {
-                    Utilities.Print(eh);
+                    Utilities.Log(eh.Data.Name);
                 }
             }
             finally
             {
                 try
                 {
-                    azure.ResourceGroups.DeleteByName(rgName);
-                }
-                catch (NullReferenceException)
-                {
-                    Utilities.Log("Did not create any resources in Azure. No clean up is necessary");
+                    if (_resourceGroupId is not null)
+                    {
+                        Console.WriteLine($"Deleting Resource Group: {_resourceGroupId}");
+                        await client.GetResourceGroupResource(_resourceGroupId).DeleteAsync(WaitUntil.Completed);
+                        Console.WriteLine($"Deleted Resource Group: {_resourceGroupId}");
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -173,24 +155,19 @@ namespace ManageEventHub
             }
         }
 
-        public static void Main(string[] args)
+        public static async Task Main(string[] args)
         {
             try
             {
                 //=================================================================
                 // Authenticate
-                var credentials = SdkContext.AzureCredentialsFactory.FromFile(Environment.GetEnvironmentVariable("AZURE_AUTH_LOCATION"));
+                var credential = new DefaultAzureCredential();
 
-                var azure = Azure
-                    .Configure()
-                    .WithLogLevel(HttpLoggingDelegatingHandler.Level.Basic)
-                    .Authenticate(credentials)
-                    .WithDefaultSubscription();
+                var subscriptionId = Environment.GetEnvironmentVariable("AZURE_SUBSCRIPTION_ID");
+                // you can also use `new ArmClient(credential)` here, and the default subscription will be the first subscription in your list of subscription
+                var client = new ArmClient(credential, subscriptionId);
 
-                // Print selected subscription
-                Utilities.Log("Selected subscription: " + azure.SubscriptionId);
-
-                RunSample(azure);
+                await RunSample(client);
             }
             catch (Exception ex)
             {
